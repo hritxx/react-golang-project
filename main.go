@@ -23,36 +23,40 @@ type Todo struct {
 var collection *mongo.Collection
 
 func main() {
-	fmt.Println("Hello World!")
+	fmt.Println("hello world")
+
 	if os.Getenv("ENV") != "production" {
+		// Load the .env file if not in production
 		err := godotenv.Load(".env")
 		if err != nil {
-			log.Fatal("Error loading the .env file", err)
+			log.Fatal("Error loading .env file:", err)
 		}
 	}
-	// PORT := os.Getenv("PORT")
-	MONGO_URI := os.Getenv("MONGO_URI")
-	clientOptions := options.Client().ApplyURI(MONGO_URI)
+
+	MONGODB_URI := os.Getenv("MONGODB_URI")
+	clientOptions := options.Client().ApplyURI(MONGODB_URI)
 	client, err := mongo.Connect(context.Background(), clientOptions)
+
 	if err != nil {
 		log.Fatal(err)
 	}
+
 	defer client.Disconnect(context.Background())
 
 	err = client.Ping(context.Background(), nil)
-
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	fmt.Println("Connected to mongodb atlas!")
+	fmt.Println("Connected to MONGODB ATLAS")
+
 	collection = client.Database("golang_db").Collection("todos")
 
 	app := fiber.New()
 
 	// app.Use(cors.New(cors.Config{
 	// 	AllowOrigins: "http://localhost:5173",
-	// 	AllowHeaders: "Origin, Content-Type, Accept",
+	// 	AllowHeaders: "Origin,Content-Type,Accept",
 	// }))
 
 	app.Get("/api/todos", getTodos)
@@ -60,20 +64,28 @@ func main() {
 	app.Patch("/api/todos/:id", updateTodo)
 	app.Delete("/api/todos/:id", deleteTodo)
 
-	PORT := os.Getenv("PORT")
-	log.Fatal(app.Listen("0.0.0.0:" + PORT))
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "5000"
+	}
 
 	if os.Getenv("ENV") == "production" {
 		app.Static("/", "./frontend/dist")
 	}
+
+	log.Fatal(app.Listen("0.0.0.0:" + port))
+
 }
 
 func getTodos(c *fiber.Ctx) error {
 	var todos []Todo
+
 	cursor, err := collection.Find(context.Background(), bson.M{})
+
 	if err != nil {
 		return err
 	}
+
 	defer cursor.Close(context.Background())
 
 	for cursor.Next(context.Background()) {
@@ -83,23 +95,23 @@ func getTodos(c *fiber.Ctx) error {
 		}
 		todos = append(todos, todo)
 	}
-	return c.Status(200).JSON(todos)
+
+	return c.JSON(todos)
 }
 
 func createTodo(c *fiber.Ctx) error {
 	todo := new(Todo)
+	// {id:0,completed:false,body:""}
 
-	err := c.BodyParser(todo)
-	if err != nil {
+	if err := c.BodyParser(todo); err != nil {
 		return err
 	}
 
 	if todo.Body == "" {
-		return c.Status(401).JSON(fiber.Map{"error": "Todo body cannot be empty."})
+		return c.Status(400).JSON(fiber.Map{"error": "Todo body cannot be empty"})
 	}
 
 	insertResult, err := collection.InsertOne(context.Background(), todo)
-
 	if err != nil {
 		return err
 	}
@@ -107,39 +119,42 @@ func createTodo(c *fiber.Ctx) error {
 	todo.ID = insertResult.InsertedID.(primitive.ObjectID)
 
 	return c.Status(201).JSON(todo)
-
 }
 
 func updateTodo(c *fiber.Ctx) error {
-	id := c.Params(("id"))
-	objectId, err := primitive.ObjectIDFromHex(id)
+	id := c.Params("id")
+	objectID, err := primitive.ObjectIDFromHex(id)
+
 	if err != nil {
-		return c.Status(400).JSON(fiber.Map{"error": "Invalid objectID"})
+		return c.Status(400).JSON(fiber.Map{"error": "Invalid todo ID"})
 	}
 
-	filter := bson.M{"_id": objectId}
+	filter := bson.M{"_id": objectID}
 	update := bson.M{"$set": bson.M{"completed": true}}
 
 	_, err = collection.UpdateOne(context.Background(), filter, update)
-
 	if err != nil {
 		return err
 	}
 
-	return c.Status(200).JSON(fiber.Map{"msg": "Status updated successfully."})
+	return c.Status(200).JSON(fiber.Map{"success": true})
+
 }
 
 func deleteTodo(c *fiber.Ctx) error {
 	id := c.Params("id")
-	objectId, err := primitive.ObjectIDFromHex(id)
+	objectID, err := primitive.ObjectIDFromHex(id)
+
 	if err != nil {
-		return c.Status(400).JSON(fiber.Map{"error": "Invalid objectId."})
+		return c.Status(400).JSON(fiber.Map{"error": "Invalid todo ID"})
 	}
 
-	filter := bson.M{"_id": objectId}
+	filter := bson.M{"_id": objectID}
 	_, err = collection.DeleteOne(context.Background(), filter)
+
 	if err != nil {
 		return err
 	}
-	return c.Status(200).JSON(fiber.Map{"msg": "Todo deleted successfully."})
+
+	return c.Status(200).JSON(fiber.Map{"success": true})
 }
